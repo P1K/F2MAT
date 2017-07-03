@@ -1,10 +1,10 @@
 /*
  * ``Fast'' matrix multiplication in GF(2) for small dimensions
  * Uses broadcast-based vectorized algorithms
- * (See e.g. (Käsper and Schwabe, 2009) and (Augot et al., 2014))
+ * (See e.g. (Käsper and Schwabe, 2009) and (Augot et al., 2014) for illustrations)
  *
  * Pierre Karpman
- * 2017-06
+ * 2017-06--07
  */
 
 #include <stdio.h>
@@ -712,6 +712,7 @@ void mul_va128128_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 
 	return;
 }
+// generic, slow
 //void mul_va128128_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 //{
 //	unsigned arows = A->nrows;
@@ -812,6 +813,7 @@ void mul_va128128_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 //
 //	return;
 //}
+// fixed dim, fast
 //void mul_va128128_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 //{
 //	__m128i v  = _mm_set_epi64x(mzd_read_bits(V, 0, 64, 64), mzd_read_bits(V, 0, 0, 64));
@@ -851,6 +853,8 @@ void mul_va128128_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 //}
 
 /* = 256 = */
+
+/* An SSE implem could also be added... */
 
 /* Assumes that V->ncols and A->ncols > 128, otherwise a better implementation is selected */
 /* FIXME Warning: also makes strong (stronger than above) assumptions about the matrix
@@ -1248,30 +1252,6 @@ void test_correc_full_32(int tries)
 	return;
 }
 
-//void test_correc_32_var(int dim1, int dim2, int tries)
-//{
-//	mzd_t *x, *y, *a;
-//
-//	x = mzd_init(1, dim2);
-//	y = mzd_init(1, dim2);
-//	a = mzd_init(dim2, dim1);
-//
-//	for (int i = 0; i < tries; i++)
-//	{
-//		mzd_randomize(x);
-//		mzd_randomize(a);
-//
-//		mul_va3232_std(y, x, a, 1);
-//		printf("%08llX\n", mzd_read_bits(y, 0, 0, dim1));
-//		mzd_mul_m4rm(y, x, a, 0);
-//		printf("%08llX\n", mzd_read_bits(y, 0, 0, dim1));
-//
-//		printf("\n");
-//	}
-//
-//	return;
-//}
-
 void test_speed_32(unsigned iter)
 {
 	struct timeval tv1, tv2;
@@ -1319,36 +1299,6 @@ void test_speed_32(unsigned iter)
 	gettimeofday(&tv2, NULL);
 	tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
 	printf("M4RI:\t\t\t %llu usecs (#%u) [%f usecs/op]\n", tusec, iter, (double)tusec / (double)iter);
-
-	return;
-}
-
-void test_speed_32_var(int dim1, int dim2, unsigned iter)
-{
-	struct timeval tv1, tv2;
-	uint64_t tusec;
-	mzd_t *x, *y, *a;
-
-	x = mzd_init(1, dim2);
-	y = mzd_init(1, dim2);
-	a = mzd_init(dim2, dim1);
-
-	mzd_randomize_custom(x, &my_little_rand, NULL);
-	mzd_randomize_custom(a, &my_little_rand, NULL);
-
-	gettimeofday(&tv1, NULL);
-	for (unsigned i = 0; i < iter; i++)
-		mul_va3232_std(y, x, a, 1);
-	gettimeofday(&tv2, NULL);
-	tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
-	printf("`Fast' %dx%d w/o SSE:\t %llu usecs (#%u)\n", dim2, dim1, tusec, iter);
-
-	gettimeofday(&tv1, NULL);
-	for (unsigned i = 0; i < iter; i++)
-		mzd_mul_m4rm(y, x, a, 0);
-	gettimeofday(&tv2, NULL);
-	tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
-	printf("M4RI:\t\t\t %llu usecs (#%u)\n", tusec, iter);
 
 	return;
 }
@@ -1719,17 +1669,17 @@ int main()
 //	test_correc_matvec_32(1<<20);
 //	test_correc_full_32(1<<16);
 //	test_correc_32_var(24,32,10);
-//	test_speed_32(1 << 20);
+	test_speed_32(1 << 20);
 //	test_speed_32_var(8, 8, 1 << 24);
 //	test_correc_64(1<<20);
 //	test_correc_full_64(1<<6);
-//	test_speed_64(1 << 20);
+	test_speed_64(1 << 20);
 //	test_correc_128(1<<20);
 //	test_correc_full_128(1<<6);
-	test_speed_128(1 << 18);
+	test_speed_128(1 << 20);
 //	test_correc_256(1<<18);
 //	test_correc_full_256(1<<7);
-//	test_speed_256(1 << 16);
+	test_speed_256(1 << 20);
 
 	return 0;
 }
