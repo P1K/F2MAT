@@ -236,7 +236,7 @@ void mul_va6464_std(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 	{
 		uint64_t m, acc = 0;
 //		uint64_t v = mzd_read_bits(V, j, 0, vcols);
-		uint64_t v = *(V->rows[j]); // FIXME: always correct? 
+		uint64_t v = *(V->rows[j]); // FIXME: always correct?
 
 		v = ~v;
 		for (int i = 0; i < vcols; i++)
@@ -404,8 +404,8 @@ void mul_va128128_std(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 		uint64_t acc1hi = 0;
 //		uint64_t vlo = mzd_read_bits(V, j, 0, 64);
 //		uint64_t vhi = mzd_read_bits(V, j, 64, vcols-64);
-		uint64_t vlo = *(V->rows[j]); // FIXME: always correct? 
-		uint64_t vhi = *(V->rows[j]+1); // FIXME: always correct? 
+		uint64_t vlo = *(V->rows[j]); // FIXME: always correct?
+		uint64_t vhi = *(V->rows[j]+1); // FIXME: always correct?
 
 		vlo = ~vlo;
 		vhi = ~vhi;
@@ -898,7 +898,7 @@ void mul_va256256_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 	for (int j = 0; j < vrows; j++)
 	{
 
-//		__m256i v   = _mm256_set_epi64x(mzd_read_bits(V, j, 192, vchi), mzd_read_bits(V, j, 128, vcmid), mzd_read_bits(V, j, 64, 64), mzd_read_bits(V, j, 0, 64));
+//		v   = _mm256_set_epi64x(mzd_read_bits(V, j, 192, vchi), mzd_read_bits(V, j, 128, vcmid), mzd_read_bits(V, j, 64, 64), mzd_read_bits(V, j, 0, 64));
 		v = _mm256_loadu_si256((__m256i*)V->rows[j]); // FIXME: always correct??
 
 		__m256i m2, m3, m4, m5, rr2, rr3, rr4, rr5;
@@ -1159,6 +1159,166 @@ void mul_va256256_avx(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 //}
 
 /*
+ * Example of specialized function, as a model for future ones
+ * assert(V->ncols > 224)
+ * assert(V->ncols <= 256)
+ * assert(A->ncols > 224)
+ * assert(A->ncols <= 256)
+ */
+void mul_224_224_bro_sse2(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
+{
+	unsigned acols = A->ncols;
+	unsigned vcols = V->ncols;
+	unsigned vrows = V->nrows;
+	unsigned vc192 = vcols - 192;
+	unsigned ac192 = acols - 192;
+
+	__m128i vlo, vhi;
+
+	for (int j = 0; j < vrows; j++)
+	{
+		__m128i acclo = _mm_setzero_si128();
+		__m128i acchi = _mm_setzero_si128();
+		__m128i ones  = _mm_set1_epi32(1);
+		__m128i m0, m00, m1, m2, m3, rl0, rh0, rl1, rh1, rl2, rh2, rl3, rh3;
+
+//		vlo = _mm_set_epi64x(mzd_read_bits(V, j, 64, 64), mzd_read_bits(V, j, 0, 64));
+		vlo = _mm_loadu_si128((__m128i*)V->rows[j]); // FIXME: always correct??
+//		vhi = _mm_set_epi64x(mzd_read_bits(V, j, 192, vc192), mzd_read_bits(V, j, 128, 64));
+		vhi = _mm_loadu_si128(((__m128i*)V->rows[j])+1); // FIXME: always correct??
+
+		for (int i = 0; i < 32; i++)
+		{
+			/* 128 Lo V columns */
+			m0 = _mm_and_si128(vlo, ones);
+			m0 = _mm_cmpeq_epi32(ones, m0);
+
+			m00 = _mm_shuffle_epi32(m0, 0x00);
+//			rl0 = _mm_set_epi64x(mzd_read_bits(A, i, 64, 64), mzd_read_bits(A, i, 0, 64));
+//			rh0 = _mm_set_epi64x(mzd_read_bits(A, i, 192, ac192), mzd_read_bits(A, i, 128, 64));
+			rl0 = _mm_loadu_si128((__m128i*)A->rows[i]); // FIXME: always correct??
+			rh0 = _mm_loadu_si128(((__m128i*)A->rows[i])+1); // FIXME: always correct??
+			rl0 = _mm_and_si128(rl0, m00);
+			rh0 = _mm_and_si128(rh0, m00);
+
+			m1 = _mm_shuffle_epi32(m0, 0x55);
+//			rl1 = _mm_set_epi64x(mzd_read_bits(A, i+32, 64, 64), mzd_read_bits(A, i+32, 0, 64));
+//			rh1 = _mm_set_epi64x(mzd_read_bits(A, i+32, 192, ac192), mzd_read_bits(A, i+32, 128, 64));
+			rl1 = _mm_loadu_si128((__m128i*)A->rows[i+32]); // FIXME: always correct??
+			rh1 = _mm_loadu_si128(((__m128i*)A->rows[i+32])+1); // FIXME: always correct??
+			rl1 = _mm_and_si128(rl1, m1);
+			rh1 = _mm_and_si128(rh1, m1);
+
+			m2 = _mm_shuffle_epi32(m0, 0xAA);
+//			rl2 = _mm_set_epi64x(mzd_read_bits(A, i+64, 64, 64), mzd_read_bits(A, i+64, 0, 64));
+//			rh2 = _mm_set_epi64x(mzd_read_bits(A, i+64, 192, ac192), mzd_read_bits(A, i+64, 128, 64));
+			rl2 = _mm_loadu_si128((__m128i*)A->rows[i+64]); // FIXME: always correct??
+			rh2 = _mm_loadu_si128(((__m128i*)A->rows[i+64])+1); // FIXME: always correct??
+			rl2 = _mm_and_si128(rl2, m2);
+			rh2 = _mm_and_si128(rh2, m2);
+
+			m3 = _mm_shuffle_epi32(m0, 0xFF);
+//			rl3 = _mm_set_epi64x(mzd_read_bits(A, i+96, 64, 64), mzd_read_bits(A, i+96, 0, 64));
+//			rh3 = _mm_set_epi64x(mzd_read_bits(A, i+96, 192, ac192), mzd_read_bits(A, i+96, 128, 64));
+			rl3 = _mm_loadu_si128((__m128i*)A->rows[i+96]); // FIXME: always correct??
+			rh3 = _mm_loadu_si128(((__m128i*)A->rows[i+96])+1); // FIXME: always correct??
+			rl3 = _mm_and_si128(rl3, m3);
+			rh3 = _mm_and_si128(rh3, m3);
+
+			rl1 = _mm_xor_si128(rl1, rl2);
+			rh1 = _mm_xor_si128(rh1, rh2);
+			rl0 = _mm_xor_si128(rl0, rl3);
+			rh0 = _mm_xor_si128(rh0, rh3);
+			acclo = _mm_xor_si128(rl0, acclo);
+			acchi = _mm_xor_si128(rh0, acchi);
+			acclo = _mm_xor_si128(rl1, acclo);
+			acchi = _mm_xor_si128(rh1, acchi);
+
+			/* 128 Hi V columns */
+			m0 = _mm_and_si128(vhi, ones);
+			m0 = _mm_cmpeq_epi32(ones, m0);
+
+			m00 = _mm_shuffle_epi32(m0, 0x00);
+//			rl0 = _mm_set_epi64x(mzd_read_bits(A, i+128, 64, 64), mzd_read_bits(A, i+128, 0, 64));
+//			rh0 = _mm_set_epi64x(mzd_read_bits(A, i+128, 192, ac192), mzd_read_bits(A, i+128, 128, 64));
+			rl0 = _mm_loadu_si128((__m128i*)A->rows[i+128]); // FIXME: always correct??
+			rh0 = _mm_loadu_si128(((__m128i*)A->rows[i+128])+1); // FIXME: always correct??
+			rl0 = _mm_and_si128(rl0, m00);
+			rh0 = _mm_and_si128(rh0, m00);
+
+			m1 = _mm_shuffle_epi32(m0, 0x55);
+//			rl1 = _mm_set_epi64x(mzd_read_bits(A, i+160, 64, 64), mzd_read_bits(A, i+160, 0, 64));
+//			rh1 = _mm_set_epi64x(mzd_read_bits(A, i+160, 192, ac192), mzd_read_bits(A, i+160, 128, 64));
+			rl1 = _mm_loadu_si128((__m128i*)A->rows[i+160]); // FIXME: always correct??
+			rh1 = _mm_loadu_si128(((__m128i*)A->rows[i+160])+1); // FIXME: always correct??
+			rl1 = _mm_and_si128(rl1, m1);
+			rh1 = _mm_and_si128(rh1, m1);
+
+			m2 = _mm_shuffle_epi32(m0, 0xAA);
+//			rl2 = _mm_set_epi64x(mzd_read_bits(A, i+192, 64, 64), mzd_read_bits(A, i+192, 0, 64));
+//			rh2 = _mm_set_epi64x(mzd_read_bits(A, i+192, 192, ac192), mzd_read_bits(A, i+192, 128, 64));
+			rl2 = _mm_loadu_si128((__m128i*)A->rows[i+192]); // FIXME: always correct??
+			rh2 = _mm_loadu_si128(((__m128i*)A->rows[i+192])+1); // FIXME: always correct??
+			rl2 = _mm_and_si128(rl2, m2);
+			rh2 = _mm_and_si128(rh2, m2);
+
+			if (i+224 < vcols) // vcols for arows
+			{
+				m3 = _mm_shuffle_epi32(m0, 0xFF);
+//				rl3 = _mm_set_epi64x(mzd_read_bits(A, i+224, 64, 64), mzd_read_bits(A, i+224, 0, 64));
+//				rh3 = _mm_set_epi64x(mzd_read_bits(A, i+224, 192, ac192), mzd_read_bits(A, i+224, 128, 64));
+				rl3 = _mm_loadu_si128((__m128i*)A->rows[i+224]); // FIXME: always correct??
+				rh3 = _mm_loadu_si128(((__m128i*)A->rows[i+224])+1); // FIXME: always correct??
+				rl3 = _mm_and_si128(rl3, m3);
+				rh3 = _mm_and_si128(rh3, m3);
+				acclo = _mm_xor_si128(rl3, acclo);
+				acchi = _mm_xor_si128(rh3, acchi);
+			}
+
+			rl1 = _mm_xor_si128(rl1, rl2);
+			rh1 = _mm_xor_si128(rh1, rh2);
+			acclo = _mm_xor_si128(rl0, acclo);
+			acchi = _mm_xor_si128(rh0, acchi);
+			acclo = _mm_xor_si128(rl1, acclo);
+			acchi = _mm_xor_si128(rh1, acchi);
+
+			ones  = _mm_slli_epi32(ones, 1);
+		}
+
+		if (clear)
+		{
+			mzd_and_bits(res, j, 0, 64, 0);
+			mzd_and_bits(res, j, 64, 64, 0);
+			mzd_and_bits(res, j, 128, 64, 0);
+			mzd_and_bits(res, j, 192, ac192, 0);
+		}
+//		mzd_xor_bits(res, j, 0, 64, _mm_extract_epi64(acclo, 0));
+//		mzd_xor_bits(res, j, 64, 64, _mm_extract_epi64(acclo, 1));
+//		mzd_xor_bits(res, j, 128, 64, _mm_extract_epi64(acchi, 0));
+//		mzd_xor_bits(res, j, 192, ac192, _mm_extract_epi64(acchi, 1));
+		// for full SSE2 compatibility; only a moderate slowdown from _mm_extract_epi_64
+		mzd_xor_bits(res, j, 0, 16, _mm_extract_epi16(acclo, 0));
+		mzd_xor_bits(res, j, 16, 16, _mm_extract_epi16(acclo, 1));
+		mzd_xor_bits(res, j, 32, 16, _mm_extract_epi16(acclo, 2));
+		mzd_xor_bits(res, j, 48, 16, _mm_extract_epi16(acclo, 3));
+		mzd_xor_bits(res, j, 64, 16, _mm_extract_epi16(acclo, 4));
+		mzd_xor_bits(res, j, 80, 16, _mm_extract_epi16(acclo, 5));
+		mzd_xor_bits(res, j, 96, 16, _mm_extract_epi16(acclo, 6));
+		mzd_xor_bits(res, j, 112, 16, _mm_extract_epi16(acclo, 7));
+		mzd_xor_bits(res, j, 128, 16, _mm_extract_epi16(acchi, 0));
+		mzd_xor_bits(res, j, 144, 16, _mm_extract_epi16(acchi, 1));
+		mzd_xor_bits(res, j, 160, 16, _mm_extract_epi16(acchi, 2));
+		mzd_xor_bits(res, j, 176, 16, _mm_extract_epi16(acchi, 3));
+		mzd_xor_bits(res, j, 192, 16, _mm_extract_epi16(acchi, 4)); // FIXME: assume leftover is always zero... correct?
+		mzd_xor_bits(res, j, 208, 16, _mm_extract_epi16(acchi, 5)); // ditto
+		mzd_xor_bits(res, j, 224, 16, _mm_extract_epi16(acchi, 6)); // ditto
+		mzd_xor_bits(res, j, 240, 16, _mm_extract_epi16(acchi, 7)); // ditto
+	}
+
+	return;
+}
+
+/*
  * TESTS
  */
 
@@ -1285,7 +1445,7 @@ void test_speed_32(unsigned iter)
 	gettimeofday(&tv2, NULL);
 	tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
 	printf("`Fast' 32 w/o SSE:\t %llu usecs (#%u) [%f usecs/op]\n", tusec, iter, (double)tusec / (double)iter);
-	
+
 	gettimeofday(&tv1, NULL);
 	for (unsigned i = 0; i < iter; i++)
 		mul_va6464_std(y, x, a, 1);
@@ -1546,7 +1706,7 @@ void test_speed_128(unsigned iter)
 	gettimeofday(&tv2, NULL);
 	tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
 	printf("`Fast' 128 w SSE:\t %llu usecs (#%u) [%f usecs/op]\n", tusec, iter, (double)tusec / (double)iter);
-	
+
 	gettimeofday(&tv1, NULL);
 	for (unsigned i = 0; i < iter; i++)
 		mul_va128128_std(y, x, a, 1);
@@ -1598,20 +1758,22 @@ void test_correc_256(int tries)
 void test_correc_full_256(int tries)
 {
 	mzd_t *x, *a;
-	mzd_t *ym4r, *yavx;
+	mzd_t *ym4r, *yavx, *ysse;
 
-	for (int c1 = 129; c1 <= 256; c1++)
+	for (int c1 = 225; c1 <= 256; c1++)
 	{
 		for (int r = 1; r <= 1; r++)
 		{
-			for (int c2 = 129; c2 <= 256; c2++)
+			for (int c2 = 225; c2 <= 256; c2++)
 			{
 				x = mzd_init(r, c1);
 				a = mzd_init(c1, c2);
 				ym4r = mzd_init(r, c2);
 				yavx = mzd_init(r, c2);
+				ysse = mzd_init(r, c2);
 
 				int avxg = 1;
+				int sseg = 1;
 
 				for (int i = 0; i < tries; i++)
 				{
@@ -1619,12 +1781,16 @@ void test_correc_full_256(int tries)
 					mzd_randomize_custom(a, &my_little_rand, NULL);
 
 					mul_va256256_avx(yavx, x, a, 1);
+					mul_224_224_bro_sse2(ysse, x, a, 1);
 					mzd_mul_m4rm(ym4r, x, a, 0);
 
 					avxg = mzd_cmp(yavx, ym4r) == 0 ? avxg : 0;
+					sseg = mzd_cmp(ysse, ym4r) == 0 ? sseg : 0;
 				}
 				if (!avxg)
 					printf("[%dx%d X %dx%d (#%d)] AVX: BAD\n", r, c1, c1, c2, tries);
+				if (!sseg)
+					printf("[%dx%d X %dx%d (#%d)] SSE: BAD\n", r, c1, c1, c2, tries);
 			}
 		}
 	}
@@ -1655,6 +1821,13 @@ void test_speed_256(unsigned iter)
 
 	gettimeofday(&tv1, NULL);
 	for (unsigned i = 0; i < iter; i++)
+		mul_224_224_bro_sse2(y, x, a, 1);
+	gettimeofday(&tv2, NULL);
+	tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
+	printf("`Fast' 256 w SSE:\t %llu usecs (#%u) [%f usecs/op]\n", tusec, iter, (double)tusec / (double)iter);
+
+	gettimeofday(&tv1, NULL);
+	for (unsigned i = 0; i < iter; i++)
 //		_mzd_mul_va(y, x, a, 1);
 		mzd_mul_m4rm(y, x, a, 0);
 	gettimeofday(&tv2, NULL);
@@ -1669,17 +1842,17 @@ int main()
 //	test_correc_matvec_32(1<<20);
 //	test_correc_full_32(1<<16);
 //	test_correc_32_var(24,32,10);
-	test_speed_32(1 << 20);
+//	test_speed_32(1 << 20);
 //	test_speed_32_var(8, 8, 1 << 24);
 //	test_correc_64(1<<20);
 //	test_correc_full_64(1<<6);
-	test_speed_64(1 << 20);
+//	test_speed_64(1 << 20);
 //	test_correc_128(1<<20);
 //	test_correc_full_128(1<<6);
-	test_speed_128(1 << 20);
+//	test_speed_128(1 << 20);
 //	test_correc_256(1<<18);
-//	test_correc_full_256(1<<7);
-	test_speed_256(1 << 20);
+//	test_correc_full_256(1<<9);
+	test_speed_256(1 << 18);
 
 	return 0;
 }
