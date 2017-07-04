@@ -16,12 +16,20 @@
 #include <m4ri/m4ri.h>
 #include "hc128rand.h"
 
+/* Kept here pour mémoire; will be refactored in different files (bro_ska, bro_sse2, bro_avx2) */
+
 /*
  * As a general rule, performance is much better when the dimensions are known
  * at compilation time (as it speeds up the matrix read & write operation
  * considerably)
  * FIXME: most of the speed can be gained back by issuing direct memory loads,
  * but will this be always correct?
+ * => Actually, the main point is to ensure that (some of the) unitialized data is zero-filled
+ * => But even if it's not, it's not a problem: one just copies the meaningful part of the result at the end
+ * => So everything should be allright in the end
+ * (the funny masks like
+	uint64_t vcolmask = vcols == 128 ? ~0ull : (1ull << (vcols - 64)) - 1ull;
+	are not even necessary, it's not faster than standard mzd r/w (which I actually find surprising!))
  */
 
 
@@ -394,7 +402,9 @@ void mul_va128128_std(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 	unsigned acols = A->ncols;
 	unsigned vcols = V->ncols;
 	unsigned vrows = V->nrows;
-
+//	uint64_t vcolmask = vcols == 128 ? ~0ull : (1ull << (vcols - 64)) - 1ull;
+//	uint64_t acolmask = acols == 128 ? ~0ull : (1ull << (acols - 64)) - 1ull;
+	
 	for (int j = 0; j < vrows; j++)
 	{
 		uint64_t mlo, mhi;
@@ -402,10 +412,11 @@ void mul_va128128_std(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 		uint64_t acc0hi = 0;
 		uint64_t acc1lo = 0;
 		uint64_t acc1hi = 0;
-//		uint64_t vlo = mzd_read_bits(V, j, 0, 64);
-//		uint64_t vhi = mzd_read_bits(V, j, 64, vcols-64);
-		uint64_t vlo = *(V->rows[j]); // FIXME: always correct?
-		uint64_t vhi = *(V->rows[j]+1); // FIXME: always correct?
+		uint64_t vlo = mzd_read_bits(V, j, 0, 64);
+		uint64_t vhi = mzd_read_bits(V, j, 64, vcols-64);
+//		uint64_t vhi = mzd_read_bits(V, j, 64, 64) & vcolmask;
+//		uint64_t vlo = *(V->rows[j]); // FIXME: always correct?
+//		uint64_t vhi = *(V->rows[j]+1); // FIXME: always correct?
 
 		vlo = ~vlo;
 		vhi = ~vhi;
@@ -413,16 +424,18 @@ void mul_va128128_std(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 		{
 			mlo = (vlo & 1) - 1;
 			mhi = (vhi & 1) - 1;
-//			acc0lo ^= (mlo & mzd_read_bits(A, i, 0, 64));
+			acc0lo ^= (mlo & mzd_read_bits(A, i, 0, 64));
 //			acc0hi ^= (mlo & mzd_read_bits(A, i, 64, acols-64));
-			acc0lo ^= (mlo & *(A->rows[i])); // FIXME: always correct?
-			acc0hi ^= (mlo & *(A->rows[i]+1)); // FIXME: always correct?
+			acc0hi ^= (mlo & mzd_read_bits(A, i, 64, 64)); // leftover is simply not copied
+//			acc0lo ^= (mlo & *(A->rows[i])); // FIXME: always correct?
+//			acc0hi ^= (mlo & *(A->rows[i]+1)); // FIXME: always correct?
 			if (i+64 < vcols)
 			{
-//				acc1lo ^= (mhi & mzd_read_bits(A, i+64, 0, 64));
+				acc1lo ^= (mhi & mzd_read_bits(A, i+64, 0, 64));
 //				acc1hi ^= (mhi & mzd_read_bits(A, i+64, 64, acols-64));
-				acc1lo ^= (mhi & *(A->rows[i+64])); // FIXME: always correct?
-				acc1hi ^= (mhi & *(A->rows[i+64]+1)); // FIXME: always correct?
+				acc1hi ^= (mhi & mzd_read_bits(A, i+64, 64, 64)); // ditto
+//				acc1lo ^= (mhi & *(A->rows[i+64])); // FIXME: always correct?
+//				acc1hi ^= (mhi & *(A->rows[i+64]+1)); // FIXME: always correct?
 			}
 			vlo >>= 1;
 			vhi >>= 1;
@@ -430,12 +443,13 @@ void mul_va128128_std(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 		if (clear)
 		{
 			mzd_and_bits(res, j, 0, 64, 0);
-			mzd_and_bits(res, j, 64, acols-64, 0);
+//			mzd_and_bits(res, j, 64, acols-64, 0);
+			mzd_and_bits(res, j, 64, 64, 0);
 		}
 		mzd_xor_bits(res, j, 0, 64, acc0lo);
 		mzd_xor_bits(res, j, 0, 64, acc1lo);
-		mzd_xor_bits(res, j, 64, acols-64, acc0hi);
-		mzd_xor_bits(res, j, 64, acols-64, acc1hi);
+		mzd_xor_bits(res, j, 64, acols - 64, acc0hi);
+		mzd_xor_bits(res, j, 64, acols - 64, acc1hi);
 	}
 
 	return;
@@ -1848,11 +1862,11 @@ int main()
 //	test_correc_full_64(1<<6);
 //	test_speed_64(1 << 20);
 //	test_correc_128(1<<20);
-//	test_correc_full_128(1<<6);
-//	test_speed_128(1 << 20);
+	test_correc_full_128(1<<6);
+	test_speed_128(1 << 18);
 //	test_correc_256(1<<18);
 //	test_correc_full_256(1<<9);
-	test_speed_256(1 << 18);
+//	test_speed_256(1 << 18);
 
 	return 0;
 }
