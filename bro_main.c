@@ -34,7 +34,7 @@ void mul_bro_ska(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 
 	void(*bros[4])(mzd_t*, mzd_t*, mzd_t*, int) = {&mul_64_64_bro_ska, &mul_128_64_bro_ska, &mul_64_128_bro_ska, &mul_128_128_bro_ska};
 	unsigned fun = (((acols-1)/64)<<1)|((vcols-1)/64);
-	
+
 	return bros[fun](res, V, A, clear);
 
 //	if ((acols <= 64) && (vcols <= 64))
@@ -1037,7 +1037,7 @@ void mul_bro_ska(mzd_t *res, mzd_t *V, mzd_t *A, int clear)
 void test_correc_bro_ska(int tries)
 {
 	mzd_t *x, *a;
-	mzd_t *ym4r, *yska; 
+	mzd_t *ym4r, *yska;
 
 	for (int c1 = 1; c1 <= 128; c1++)
 	{
@@ -1072,17 +1072,22 @@ void test_correc_bro_ska(int tries)
 	return;
 }
 
-void test_perf_bro_ska(unsigned iter)
+void benchs_bro_ska(unsigned iter)
 {
 	struct timeval tv1, tv2;
 	uint64_t tusec;
 	mzd_t *x, *y, *a;
-	
-	for (int c1 = 16; c1 <= 128; c1 += 16)
+	FILE *ska;
+	char skaname[256];
+
+	for (int c1 = 8; c1 <= 128; c1 += 8)
 	{
-		for (int r = 16; r <= 128; r += 32)
+		for (int r = 8; r <= 128; r += 8)
 		{
-			for (int c2 = 16; c2 <= 128; c2 += 16)
+			snprintf(skaname, 256, "benchs/bro_ska_%d_%d_%uT", r, c1, iter);
+			ska   = fopen(skaname, "w");
+
+			for (int c2 = 8; c2 <= 128; c2 += 8)
 			{
 				x = mzd_init(r, c1);
 				a = mzd_init(c1, c2);
@@ -1093,29 +1098,151 @@ void test_perf_bro_ska(unsigned iter)
 
 				gettimeofday(&tv1, NULL);
 				for (unsigned i = 0; i < iter; i++)
-					mul_bro_ska(y, x, a, 1);
+					mul_bro_ska(y, x, a, 0);
 				gettimeofday(&tv2, NULL);
 				tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
-				printf("BRO SKA (%dx%d X %dx%d):\t %llu usecs (#%u) [%f usecs/op]\n", r, c1, c1, c2, tusec, iter, (double)tusec / (double)iter);
+//				printf("BRO SKA (%dx%d X %dx%d):\t %llu usecs (#%u) [%f usecs/op]\n", r, c1, c1, c2, tusec, iter, (double)tusec / (double)iter);
+				fprintf(ska, "%d %f\n", c2, (double)tusec / (double)iter);
 
-				gettimeofday(&tv1, NULL);
-				for (unsigned i = 0; i < iter; i++)
-					mzd_mul_m4rm(y, x, a, 0);
-				gettimeofday(&tv2, NULL);
-				tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
-				printf("M4RI (%dx%d X %dx%d):\t\t %llu usecs (#%u) [%f usecs/op]\n", r, c1, c1, c2, tusec, iter, (double)tusec / (double)iter);
+
+				mzd_free(x);
+				mzd_free(a);
+				mzd_free(y);
 			}
+
+			fclose(ska);
 		}
 	}
 
 	return;
 }
 
+void benchs_m4rm(unsigned iter)
+{
+	struct timeval tv1, tv2;
+	uint64_t tusec;
+	mzd_t *x, *y, *a;
+	FILE *m4rm;
+	char m4rname[256];
+
+	for (int c1 = 8; c1 <= 128; c1 += 8)
+	{
+		for (int r = 8; r <= 128; r += 8)
+		{
+			snprintf(m4rname, 256, "benchs/m4rm_%d_%d_%uT", r, c1, iter);
+			m4rm  = fopen(m4rname, "w");
+
+			for (int c2 = 8; c2 <= 128; c2 += 8)
+			{
+				x = mzd_init(r, c1);
+				a = mzd_init(c1, c2);
+				y = mzd_init(r, c2);
+
+				mzd_randomize_custom(x, &my_little_rand, NULL);
+				mzd_randomize_custom(a, &my_little_rand, NULL);
+
+				gettimeofday(&tv1, NULL);
+				for (unsigned i = 0; i < iter; i++)
+					mzd_mul_m4rm(y, x, a, 0);
+				gettimeofday(&tv2, NULL);
+				tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
+//				printf("M4RI (%dx%d X %dx%d):\t\t %llu usecs (#%u) [%f usecs/op]\n", r, c1, c1, c2, tusec, iter, (double)tusec / (double)iter);
+				fprintf(m4rm, "%d %f\n", c2, (double)tusec / (double)iter);
+
+				mzd_free(x);
+				mzd_free(a);
+				mzd_free(y);
+			}
+
+			fclose(m4rm);
+		}
+	}
+
+	return;
+}
+
+void benchs_naive(unsigned iter)
+{
+	struct timeval tv1, tv2;
+	uint64_t tusec;
+	mzd_t *x, *y, *a;
+	FILE *naive;
+	char naivename[256];
+
+	for (int c1 = 8; c1 <= 128; c1 += 8)
+	{
+		for (int r = 8; r <= 128; r += 8)
+		{
+			snprintf(naivename, 256, "benchs/naive_%d_%d_%uT", r, c1, iter);
+			naive = fopen(naivename, "w");
+
+			for (int c2 = 8; c2 <= 128; c2 += 8)
+			{
+				x = mzd_init(r, c1);
+				a = mzd_init(c1, c2);
+				y = mzd_init(r, c2);
+
+
+				mzd_randomize_custom(x, &my_little_rand, NULL);
+				mzd_randomize_custom(a, &my_little_rand, NULL);
+
+				gettimeofday(&tv1, NULL);
+				for (unsigned i = 0; i < iter; i++)
+					mzd_mul_naive(y, x, a);
+				gettimeofday(&tv2, NULL);
+				tusec = ((1000000*tv2.tv_sec + tv2.tv_usec) - (1000000*tv1.tv_sec + tv1.tv_usec));
+//				printf("M4RI (%dx%d X %dx%d):\t\t %llu usecs (#%u) [%f usecs/op]\n", r, c1, c1, c2, tusec, iter, (double)tusec / (double)iter);
+				fprintf(naive, "%d %f\n", c2, (double)tusec / (double)iter);
+
+				mzd_free(x);
+				mzd_free(a);
+				mzd_free(y);
+			}
+
+			fclose(naive);
+		}
+	}
+
+	return;
+}
+
+void create_plot_files(unsigned iter)
+{
+	char plotname[256];
+	FILE *plot;
+
+	for (int c1 = 8; c1 <= 128; c1 += 8)
+	{
+		for (int r = 8; r <= 128; r += 8)
+		{
+			snprintf(plotname, 256, "benchs/graphs/%dx%d_X_%dxVVV_%uT.plot", r, c1, c1, iter);
+			plot = fopen(plotname, "w");
+
+			fprintf(plot, "set terminal png nocrop enhanced font arial 10\n");
+			fprintf(plot, "set output '%dx%d_X_%dxVVV_%uT.png'\n", r, c1, c1, iter);
+			fprintf(plot, "set title \"Simple bench, %dx%d X %dx[x axis], average time of %u tries\"\n", r, c1, c1, iter);
+			fprintf(plot, "set ylabel \"Time (usec)\"\n");
+			fprintf(plot, "set xlabel \"dimension\"\n");
+			fprintf(plot, "set xrange [0:128]\n");
+			fprintf(plot, "set yrange [0:*]\n");
+			fprintf(plot, "plot \"../bro_ska_%d_%d_%uT\" with linespoints, \"../m4rm_%d_%d_%uT\" with linespoints, \"../naive_%d_%d_%uT\" with linespoints\n",
+					r, c1, iter, r, c1, iter, r, c1, iter);
+
+			fclose(plot);
+
+		}
+	}
+	return;
+}
+
 
 int main()
 {
-//	test_correc_bro_ska(1 << 8);
-	test_perf_bro_ska(1 << 16);
+	test_correc_bro_ska(1 << 8);
+	benchs_bro_ska(1<<8);
+	benchs_m4rm(1<<8);
+	benchs_naive(1<<8);
+	create_plot_files(1<<8);
 
 	return 0;
 }

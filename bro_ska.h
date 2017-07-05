@@ -1,7 +1,7 @@
 /*
  * Generic multiplication (+ add) routines for matrices smaller than 128x128
  * For legacy systems that don't have SSE2
- * 
+ *
  * Pierre Karpman (CWI)
  * 2017-07
  */
